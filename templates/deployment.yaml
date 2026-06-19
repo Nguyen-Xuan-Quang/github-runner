@@ -17,9 +17,9 @@ spec:
       labels:
         app: {{ .Values.name }}
     spec:
-      # restricted-v2 SCC: OpenShift assigns UID from namespace range; do not set seccomp (SCC manages it)
-      securityContext:
-        runAsNonRoot: true
+      # restricted-v2 SCC assigns a numeric runAsUser from the namespace UID range.
+      # Do not set runAsNonRoot here: summerwind/actions-runner image uses USER "runner"
+      # (non-numeric) and kubelet cannot verify non-root without an explicit runAsUser.
       enableServiceLinks: false
       initContainers:
         # === Inject proxy CA certs (must run before any outbound download) ===
