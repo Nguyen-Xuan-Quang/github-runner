@@ -4,30 +4,25 @@ github:
   url: "https://github.com/test-dcmlp"
 
 runner:
-  name: "github-runner"
-  labels: "github,dev,cms"
+  name: "dcmlp-prod-github-runner"
+  labels: "github,dcmlp-prod"
   ephemeral: "false"
 
 config:
   tokenSecretName: github-runner-registration-token
   tokenSecretKey: RUNNER_TOKEN
 
-# Bosch cluster: outbound traffic must use corporate proxy.
-# docker.io is whitelisted for kubelet image pull (no jfrog cred needed).
 proxy:
   http: "http://rb-proxy-emea.internal.bosch.cloud:8080"
   https: "http://rb-proxy-emea.internal.bosch.cloud:8080"
   noProxy: "localhost,127.0.0.1,.svc,.cluster.local,.internal.bosch.cloud,.bosch.com"
 
 secrets:
-  # Leave empty for public Docker Hub images (no imagePullSecret).
-  imagePull: ""
+  imagePull: dockerhub-cred
   proxyCAConfigMap: rb-proxy-tls-ca
 
 image:
-  runner: docker.io/summerwind/actions-runner:latest
-  helm: docker.io/alpine/helm:3.14.4
-  # Used for /etc/docker/certs.d/<registry>/ when proxy does TLS inspection
+  runner: docker.io/nor1hctools/deployments:cms-actions-runner-1.0.0
   registry: docker.io
 
 resources:

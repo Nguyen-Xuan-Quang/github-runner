@@ -12,20 +12,3 @@
 - name: no_proxy
   value: {{ .Values.proxy.noProxy | quote }}
 {{- end }}
-
-{{- define "github-runner.caBundleEnv" -}}
-- name: SSL_CERT_FILE
-  value: "/runner-certs/ca-bundle.crt"
-- name: CURL_CA_BUNDLE
-  value: "/runner-certs/ca-bundle.crt"
-- name: REQUESTS_CA_BUNDLE
-  value: "/runner-certs/ca-bundle.crt"
-- name: PIP_CERT
-  value: "/runner-certs/ca-bundle.crt"
-{{- end }}
-
-{{- define "github-runner.caBundleVolumeMount" -}}
-- name: runner-certs
-  mountPath: /runner-certs
-  readOnly: true
-{{- end }}

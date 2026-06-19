@@ -18,263 +18,8 @@ spec:
         app: {{ .Values.name }}
     spec:
       # restricted-v2 SCC assigns a numeric runAsUser from the namespace UID range.
-      # Do not set runAsNonRoot here: summerwind/actions-runner image uses USER "runner"
-      # (non-numeric) and kubelet cannot verify non-root without an explicit runAsUser.
+      # Do not set runAsNonRoot here: base image uses USER "runner" (non-numeric).
       enableServiceLinks: false
-      initContainers:
-        # === Inject proxy CA certs (must run before any outbound download) ===
-        - name: install-ca-cert
-          image: {{ .Values.image.runner }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          command:
-            - bash
-            - -c
-            - |
-              set -e
-              REGISTRY={{ .Values.image.registry }}
-              mkdir -p /runner-certs/${REGISTRY}
-              cp /rb-proxy-ca/ca.crt /runner-certs/${REGISTRY}/ca.crt
-              cat /etc/ssl/certs/ca-certificates.crt /rb-proxy-ca/ca.crt > /runner-certs/ca-bundle.crt
-              echo "CA cert installed for ${REGISTRY}"
-          resources:
-            requests:
-              cpu: "5m"
-              memory: "16Mi"
-            limits:
-              cpu: "20m"
-              memory: "32Mi"
-          volumeMounts:
-            - name: rb-proxy-tls-ca
-              mountPath: /rb-proxy-ca
-              readOnly: true
-            - name: runner-certs
-              mountPath: /runner-certs
-
-        # === Install Node.js 20 LTS (needs proxy + CA for nodejs.org) ===
-        - name: install-node
-          image: {{ .Values.image.runner }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          env:
-            {{- include "github-runner.proxyEnv" . | nindent 12 }}
-            {{- include "github-runner.caBundleEnv" . | nindent 12 }}
-          command:
-            - bash
-            - -c
-            - |
-              set -e
-              NODE_VERSION=v20.19.1
-              echo "Downloading Node.js ${NODE_VERSION}..."
-              curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.gz" \
-                | tar -xz -C /tools/
-              mv /tools/node-${NODE_VERSION}-linux-x64 /tools/node
-              echo "node: $(/tools/node/bin/node --version)"
-              echo "npm:  $(/tools/node/bin/npm --version)"
-          resources:
-            requests:
-              cpu: "50m"
-              memory: "128Mi"
-            limits:
-              cpu: "200m"
-              memory: "256Mi"
-          volumeMounts:
-            - name: tools
-              mountPath: /tools
-            {{- include "github-runner.caBundleVolumeMount" . | nindent 12 }}
-
-        # === Install oc/kubectl (needs proxy + CA for mirror.openshift.com) ===
-        - name: install-oc
-          image: {{ .Values.image.runner }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          env:
-            {{- include "github-runner.proxyEnv" . | nindent 12 }}
-            {{- include "github-runner.caBundleEnv" . | nindent 12 }}
-          command:
-            - bash
-            - -c
-            - |
-              set -e
-              OC_VERSION=4.15.0
-              echo "Downloading oc ${OC_VERSION}..."
-              curl -fsSL \
-                "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/${OC_VERSION}/openshift-client-linux.tar.gz" \
-                | tar -xz -C /tools oc kubectl
-              echo "oc ready: $(/tools/oc version --client 2>&1 | head -1)"
-          resources:
-            requests:
-              cpu: "10m"
-              memory: "64Mi"
-            limits:
-              cpu: "50m"
-              memory: "128Mi"
-          volumeMounts:
-            - name: tools
-              mountPath: /tools
-            {{- include "github-runner.caBundleVolumeMount" . | nindent 12 }}
-
-        # === Install Python 3.10 standalone (needs proxy + CA for github.com) ===
-        - name: install-python310
-          image: {{ .Values.image.runner }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          env:
-            {{- include "github-runner.proxyEnv" . | nindent 12 }}
-            {{- include "github-runner.caBundleEnv" . | nindent 12 }}
-          command:
-            - bash
-            - -c
-            - |
-              set -e
-              PY_VERSION=3.10.13
-              PY_BUILD=20240107
-              echo "Downloading Python ${PY_VERSION} (python-build-standalone)..."
-              curl -fsSL \
-                "https://github.com/indygreg/python-build-standalone/releases/download/${PY_BUILD}/cpython-${PY_VERSION}+${PY_BUILD}-x86_64-unknown-linux-gnu-install_only.tar.gz" \
-                | tar -xz -C /tools/
-              echo "python3.10: $(/tools/python/bin/python3.10 --version)"
-          resources:
-            requests:
-              cpu: "50m"
-              memory: "256Mi"
-            limits:
-              cpu: "200m"
-              memory: "512Mi"
-          volumeMounts:
-            - name: tools
-              mountPath: /tools
-            {{- include "github-runner.caBundleVolumeMount" . | nindent 12 }}
-
-        # === Install sops + yq + poetry (needs proxy + CA for github.com / pypi.org) ===
-        - name: install-tools-extras
-          image: {{ .Values.image.runner }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          env:
-            - name: HOME
-              value: "/tools"
-            - name: TMPDIR
-              value: "/tools/tmp"
-            {{- include "github-runner.proxyEnv" . | nindent 12 }}
-            {{- include "github-runner.caBundleEnv" . | nindent 12 }}
-          command:
-            - bash
-            - -c
-            - |
-              set -e
-              mkdir -p /tools/tmp
-
-              echo "Bootstrapping pip into Python 3.10..."
-              /tools/python/bin/python3.10 -m ensurepip --upgrade
-              /tools/python/bin/python3.10 -m pip install --upgrade pip --quiet
-              echo "pip: $(/tools/python/bin/python3.10 -m pip --version)"
-
-              SOPS_VERSION=v3.8.1
-              echo "Downloading sops ${SOPS_VERSION}..."
-              curl -fsSL "https://github.com/getsops/sops/releases/download/${SOPS_VERSION}/sops-${SOPS_VERSION}.linux.amd64" -o /tools/sops
-              chmod +x /tools/sops
-
-              YQ_VERSION=v4.43.1
-              echo "Downloading yq ${YQ_VERSION}..."
-              curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /tools/yq
-              chmod +x /tools/yq
-
-              echo "Installing poetry via pip..."
-              export LD_LIBRARY_PATH=/tools/python/lib:${LD_LIBRARY_PATH}
-              /tools/python/bin/python3.10 -m pip install --quiet poetry
-              echo "poetry: $(/tools/python/bin/python3.10 -m poetry --version 2>&1)"
-
-              cat > /tools/poetry-bin << 'WRAPPER'
-              #!/bin/bash
-              export LD_LIBRARY_PATH=/tools/python/lib:${LD_LIBRARY_PATH}
-              exec /tools/python/bin/python3.10 -m poetry "$@"
-              WRAPPER
-              chmod +x /tools/poetry-bin
-          resources:
-            requests:
-              cpu: "50m"
-              memory: "128Mi"
-            limits:
-              cpu: "200m"
-              memory: "256Mi"
-          volumeMounts:
-            - name: tools
-              mountPath: /tools
-            {{- include "github-runner.caBundleVolumeMount" . | nindent 12 }}
-
-        # === Copy helm binary from image (no outbound network) ===
-        - name: install-helm
-          image: {{ .Values.image.helm }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          command:
-            - sh
-            - -c
-            - |
-              cp $(which helm) /tools/helm
-              echo "helm ready: $(/tools/helm version --short 2>&1)"
-          resources:
-            requests:
-              cpu: "5m"
-              memory: "32Mi"
-            limits:
-              cpu: "20m"
-              memory: "64Mi"
-          volumeMounts:
-            - name: tools
-              mountPath: /tools
-
-        # === Flatten tools into runner-bin (PATH) ===
-        - name: flatten-tools
-          image: {{ .Values.image.runner }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          command:
-            - bash
-            - -c
-            - |
-              set -e
-              cp -a /usr/local/bin/* /runner-bin/ 2>/dev/null || true
-              for f in /tools/oc /tools/kubectl /tools/helm /tools/sops /tools/yq; do
-                [ -f "$f" ] && cp "$f" /runner-bin/
-              done
-              for f in /tools/node/bin/*; do
-                [ -e "$f" ] && ln -sf "$f" /runner-bin/
-              done
-              [ -f /tools/poetry-bin ] && cp /tools/poetry-bin /runner-bin/poetry
-              for name in python python3 python3.10; do
-                ln -sf /tools/python/bin/python3.10 /runner-bin/$name
-              done
-              echo "Flattened /runner-bin contents:"
-              ls -la /runner-bin/
-          resources:
-            requests:
-              cpu: "5m"
-              memory: "32Mi"
-            limits:
-              cpu: "20m"
-              memory: "64Mi"
-          volumeMounts:
-            - name: tools
-              mountPath: /tools
-            - name: runner-bin
-              mountPath: /runner-bin
-
       containers:
         - name: runner
           image: {{ .Values.image.runner }}
@@ -298,10 +43,6 @@ spec:
                   key: {{ .Values.config.tokenSecretKey }}
             - name: HOME
               value: "/runner"
-            - name: PATH
-              value: "/tools:/tools/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-            - name: LD_LIBRARY_PATH
-              value: "/tools/python/lib"
             {{- include "github-runner.proxyEnv" . | nindent 12 }}
             - name: SSL_CERT_FILE
               value: "/etc/docker/certs.d/ca-bundle.crt"
@@ -319,6 +60,11 @@ spec:
               echo "Runner name: ${RUNNER_NAME}"
               echo "Labels: ${RUNNER_LABELS}"
               echo "URL: ${RUNNER_URL}"
+
+              REGISTRY={{ .Values.image.registry }}
+              mkdir -p /etc/docker/certs.d/${REGISTRY}
+              cp /rb-proxy-ca/ca.crt /etc/docker/certs.d/${REGISTRY}/ca.crt
+              cat /etc/ssl/certs/ca-certificates.crt /rb-proxy-ca/ca.crt > /etc/docker/certs.d/ca-bundle.crt
 
               echo "Copying runner assets to /runner..."
               shopt -s dotglob
@@ -343,16 +89,15 @@ spec:
               echo "Starting runner..."
               exec ./run.sh
           volumeMounts:
-            - name: tools
-              mountPath: /tools
             - name: work
               mountPath: /runner
-            - name: runner-bin
-              mountPath: /usr/local/bin
             - name: runner-home
               mountPath: /home/runner
             - name: runner-certs
               mountPath: /etc/docker/certs.d
+            - name: rb-proxy-tls-ca
+              mountPath: /rb-proxy-ca
+              readOnly: true
           resources:
             requests:
               cpu: {{ .Values.resources.requests.cpu | quote }}
@@ -362,11 +107,7 @@ spec:
               memory: {{ .Values.resources.limits.memory | quote }}
 
       volumes:
-        - name: tools
-          emptyDir: {}
         - name: work
-          emptyDir: {}
-        - name: runner-bin
           emptyDir: {}
         {{- if .Values.persistence.enabled }}
         - name: runner-home
