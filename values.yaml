@@ -12,13 +12,23 @@ config:
   tokenSecretName: github-runner-registration-token
   tokenSecretKey: RUNNER_TOKEN
 
+# Bosch cluster: outbound traffic must use corporate proxy.
+# docker.io is whitelisted for kubelet image pull (no jfrog cred needed).
+proxy:
+  http: "http://rb-proxy-emea.internal.bosch.cloud:8080"
+  https: "http://rb-proxy-emea.internal.bosch.cloud:8080"
+  noProxy: "localhost,127.0.0.1,.svc,.cluster.local,.internal.bosch.cloud,.bosch.com"
+
 secrets:
-  imagePull: jfrog-cred
+  # Leave empty for public Docker Hub images (no imagePullSecret).
+  imagePull: ""
   proxyCAConfigMap: rb-proxy-tls-ca
 
 image:
-  runner: docker-virtual.rb-artifactory.bosch.com/summerwind/actions-runner:latest
-  helm: docker-virtual.rb-artifactory.bosch.com/alpine/helm:3.14.4
+  runner: docker.io/summerwind/actions-runner:latest
+  helm: docker.io/alpine/helm:3.14.4
+  # Used for /etc/docker/certs.d/<registry>/ when proxy does TLS inspection
+  registry: docker.io
 
 resources:
   requests:

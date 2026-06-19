@@ -22,7 +22,38 @@ spec:
         runAsNonRoot: true
       enableServiceLinks: false
       initContainers:
-        # === Install Node.js 20 LTS ===
+        # === Inject proxy CA certs (must run before any outbound download) ===
+        - name: install-ca-cert
+          image: {{ .Values.image.runner }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              REGISTRY={{ .Values.image.registry }}
+              mkdir -p /runner-certs/${REGISTRY}
+              cp /rb-proxy-ca/ca.crt /runner-certs/${REGISTRY}/ca.crt
+              cat /etc/ssl/certs/ca-certificates.crt /rb-proxy-ca/ca.crt > /runner-certs/ca-bundle.crt
+              echo "CA cert installed for ${REGISTRY}"
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "16Mi"
+            limits:
+              cpu: "20m"
+              memory: "32Mi"
+          volumeMounts:
+            - name: rb-proxy-tls-ca
+              mountPath: /rb-proxy-ca
+              readOnly: true
+            - name: runner-certs
+              mountPath: /runner-certs
+
+        # === Install Node.js 20 LTS (needs proxy + CA for nodejs.org) ===
         - name: install-node
           image: {{ .Values.image.runner }}
           securityContext:
@@ -30,12 +61,8 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
-            - name: HTTPS_PROXY
-              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
-            - name: HTTP_PROXY
-              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
-            - name: NO_PROXY
-              value: "localhost,127.0.0.1,.svc,.cluster.local,.internal.bosch.cloud,.bosch.com"
+            {{- include "github-runner.proxyEnv" . | nindent 12 }}
+            {{- include "github-runner.caBundleEnv" . | nindent 12 }}
           command:
             - bash
             - -c
@@ -58,8 +85,9 @@ spec:
           volumeMounts:
             - name: tools
               mountPath: /tools
+            {{- include "github-runner.caBundleVolumeMount" . | nindent 12 }}
 
-        # === Install oc/kubectl ===
+        # === Install oc/kubectl (needs proxy + CA for mirror.openshift.com) ===
         - name: install-oc
           image: {{ .Values.image.runner }}
           securityContext:
@@ -67,12 +95,8 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
-            - name: HTTPS_PROXY
-              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
-            - name: HTTP_PROXY
-              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
-            - name: NO_PROXY
-              value: "localhost,127.0.0.1,.svc,.cluster.local,.internal.bosch.cloud,.bosch.com"
+            {{- include "github-runner.proxyEnv" . | nindent 12 }}
+            {{- include "github-runner.caBundleEnv" . | nindent 12 }}
           command:
             - bash
             - -c
@@ -94,8 +118,9 @@ spec:
           volumeMounts:
             - name: tools
               mountPath: /tools
+            {{- include "github-runner.caBundleVolumeMount" . | nindent 12 }}
 
-        # === Install Python 3.10 standalone ===
+        # === Install Python 3.10 standalone (needs proxy + CA for github.com) ===
         - name: install-python310
           image: {{ .Values.image.runner }}
           securityContext:
@@ -103,12 +128,8 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
-            - name: HTTPS_PROXY
-              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
-            - name: HTTP_PROXY
-              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
-            - name: NO_PROXY
-              value: "localhost,127.0.0.1,.svc,.cluster.local,.internal.bosch.cloud,.bosch.com"
+            {{- include "github-runner.proxyEnv" . | nindent 12 }}
+            {{- include "github-runner.caBundleEnv" . | nindent 12 }}
           command:
             - bash
             - -c
@@ -131,8 +152,9 @@ spec:
           volumeMounts:
             - name: tools
               mountPath: /tools
+            {{- include "github-runner.caBundleVolumeMount" . | nindent 12 }}
 
-        # === Install sops + yq + poetry ===
+        # === Install sops + yq + poetry (needs proxy + CA for github.com / pypi.org) ===
         - name: install-tools-extras
           image: {{ .Values.image.runner }}
           securityContext:
@@ -144,12 +166,8 @@ spec:
               value: "/tools"
             - name: TMPDIR
               value: "/tools/tmp"
-            - name: HTTPS_PROXY
-              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
-            - name: HTTP_PROXY
-              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
-            - name: NO_PROXY
-              value: "localhost,127.0.0.1,.svc,.cluster.local,.internal.bosch.cloud,.bosch.com"
+            {{- include "github-runner.proxyEnv" . | nindent 12 }}
+            {{- include "github-runner.caBundleEnv" . | nindent 12 }}
           command:
             - bash
             - -c
@@ -193,8 +211,9 @@ spec:
           volumeMounts:
             - name: tools
               mountPath: /tools
+            {{- include "github-runner.caBundleVolumeMount" . | nindent 12 }}
 
-        # === Copy helm binary ===
+        # === Copy helm binary from image (no outbound network) ===
         - name: install-helm
           image: {{ .Values.image.helm }}
           securityContext:
@@ -217,37 +236,6 @@ spec:
           volumeMounts:
             - name: tools
               mountPath: /tools
-
-        # === Inject RB proxy CA certs ===
-        - name: install-ca-cert
-          image: {{ .Values.image.runner }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          command:
-            - bash
-            - -c
-            - |
-              set -e
-              REGISTRY=docker-virtual.rb-artifactory.bosch.com
-              mkdir -p /runner-certs/${REGISTRY}
-              cp /rb-proxy-ca/ca.crt /runner-certs/${REGISTRY}/ca.crt
-              cat /etc/ssl/certs/ca-certificates.crt /rb-proxy-ca/ca.crt > /runner-certs/ca-bundle.crt
-              echo "CA cert installed for ${REGISTRY}"
-          resources:
-            requests:
-              cpu: "5m"
-              memory: "16Mi"
-            limits:
-              cpu: "20m"
-              memory: "32Mi"
-          volumeMounts:
-            - name: rb-proxy-tls-ca
-              mountPath: /rb-proxy-ca
-              readOnly: true
-            - name: runner-certs
-              mountPath: /runner-certs
 
         # === Flatten tools into runner-bin (PATH) ===
         - name: flatten-tools
@@ -314,13 +302,7 @@ spec:
               value: "/tools:/tools/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: LD_LIBRARY_PATH
               value: "/tools/python/lib"
-            - name: HTTPS_PROXY
-              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
-            - name: HTTP_PROXY
-              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
-            - name: NO_PROXY
-              value: "localhost,127.0.0.1,.svc,.cluster.local,.internal.bosch.cloud,.bosch.com"
-            # CA bundle cho mọi client
+            {{- include "github-runner.proxyEnv" . | nindent 12 }}
             - name: SSL_CERT_FILE
               value: "/etc/docker/certs.d/ca-bundle.crt"
             - name: CURL_CA_BUNDLE
@@ -329,12 +311,6 @@ spec:
               value: "/etc/docker/certs.d/ca-bundle.crt"
             - name: NODE_EXTRA_CA_CERTS
               value: "/etc/docker/certs.d/ca-bundle.crt"
-          # === Config + run ===
-          # summerwind/actions-runner stores runner binaries in /runnertmp (image layer,
-          # owned by UID 1001). OpenShift runs the pod as UID 1000, so we cannot write
-          # directly into /runnertmp. Fix: copy assets to /runner (emptyDir volume,
-          # chowned to fsGroup by OpenShift → writable by UID 1000), then cd there.
-          # This mirrors what summerwind's own startup.sh does internally.
           command:
             - bash
             - -c
@@ -344,14 +320,12 @@ spec:
               echo "Labels: ${RUNNER_LABELS}"
               echo "URL: ${RUNNER_URL}"
 
-              # Copy runner assets từ image layer (/runnertmp) sang emptyDir volume (/runner)
               echo "Copying runner assets to /runner..."
               shopt -s dotglob
               cp -r /runnertmp/. /runner/
               shopt -u dotglob
               cd /runner
 
-              # Chạy config.sh nếu chưa được cấu hình
               if [ ! -f /runner/.runner ]; then
                 echo "Running config.sh with provided registration token..."
                 ./config.sh \
@@ -395,8 +369,6 @@ spec:
         - name: runner-bin
           emptyDir: {}
         {{- if .Values.persistence.enabled }}
-        # PVC này chứa .runner (registration state) + một số file runner khác.
-        # Nhờ nó mà sau lần config đầu tiên, mọi pod restart / recreate đều KHÔNG cần token nữa.
         - name: runner-home
           persistentVolumeClaim:
             claimName: {{ .Release.Name }}-runner-state
@@ -409,6 +381,7 @@ spec:
         - name: rb-proxy-tls-ca
           configMap:
             name: {{ .Values.secrets.proxyCAConfigMap }}
-
+      {{- if .Values.secrets.imagePull }}
       imagePullSecrets:
-        - name: {{ .Values.secrets.imagePull }}  # new secret for git.digital-easy.link:5000 registry
+        - name: {{ .Values.secrets.imagePull }}
+      {{- end }}
