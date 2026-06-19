@@ -17,12 +17,9 @@ spec:
       labels:
         app: {{ .Values.name }}
     spec:
-      # restricted SCC
+      # restricted-v2 SCC: OpenShift assigns UID from namespace range; do not set seccomp (SCC manages it)
       securityContext:
-        runAsUser: 1000
         runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
       enableServiceLinks: false
       initContainers:
         # === Install Node.js 20 LTS ===
