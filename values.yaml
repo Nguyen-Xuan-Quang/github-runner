@@ -25,18 +25,29 @@ image:
   runner: docker.io/nor1hctools/deployments:cms-actions-runner-1.0.0
   registry: docker.io
 
+serviceAccount:
+  create: true
+  name: github-runner
+  clusterAdmin: true
+
 resources:
   requests:
     cpu: "1000m"
     memory: "4Gi"
+    ephemeralStorage: "60Gi"
   limits:
     cpu: "1000m"
     memory: "4Gi"
+    ephemeralStorage: "60Gi"
 
-# PVC 60Gi mount tại /runner — lưu runner state (.runner) + workspace (_work) qua pod restart.
+# /runner = emptyDir (workspace, luôn writable trên OpenShift)
+# /runner-state = PVC nhỏ, chỉ lưu .runner / .credentials qua pod restart
+workspace:
+  sizeLimit: 60Gi
+
 persistence:
   enabled: true
   storageClassName: ""
-  size: 60Gi
+  size: 5Gi
   accessModes:
     - ReadWriteOnce

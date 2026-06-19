@@ -17,8 +17,9 @@ spec:
       labels:
         app: {{ .Values.name }}
     spec:
-      # restricted-v2 SCC assigns a numeric runAsUser from the namespace UID range.
-      # Do not set runAsNonRoot here: base image uses USER "runner" (non-numeric).
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- end }}
       enableServiceLinks: false
       containers:
         - name: runner
@@ -66,11 +67,35 @@ spec:
               cp /rb-proxy-ca/ca.crt /etc/docker/certs.d/${REGISTRY}/ca.crt
               cat /etc/ssl/certs/ca-certificates.crt /rb-proxy-ca/ca.crt > /etc/docker/certs.d/ca-bundle.crt
 
-              echo "Copying runner assets to /runner..."
+              restore_state() {
+                if [ ! -f /runner-state/.runner ]; then
+                  return 0
+                fi
+                echo "Restoring runner state from /runner-state..."
+                for f in .runner .credentials .credentials_rsaparams .env .path; do
+                  [ -f "/runner-state/$f" ] && cp -a "/runner-state/$f" /runner/
+                done
+              }
+
+              save_state() {
+                if ! touch /runner-state/.write-test 2>/dev/null; then
+                  echo "WARN: /runner-state not writable — registration state will not persist"
+                  return 0
+                fi
+                rm -f /runner-state/.write-test
+                echo "Saving runner state to /runner-state..."
+                for f in .runner .credentials .credentials_rsaparams .env .path; do
+                  [ -f "/runner/$f" ] && cp -a "/runner/$f" /runner-state/
+                done
+              }
+
+              echo "Copying runner assets to /runner (emptyDir)..."
               shopt -s dotglob
-              cp -r /runnertmp/. /runner/
+              cp -a /runnertmp/. /runner/
               shopt -u dotglob
               cd /runner
+
+              restore_state
 
               if [ ! -f /runner/.runner ]; then
                 echo "Running config.sh with provided registration token..."
@@ -82,6 +107,7 @@ spec:
                   --ephemeral "${EPHEMERAL}" \
                   --unattended \
                   --replace
+                save_state
               else
                 echo "Runner already configured, skipping config.sh"
               fi
@@ -91,6 +117,10 @@ spec:
           volumeMounts:
             - name: work
               mountPath: /runner
+            {{- if .Values.persistence.enabled }}
+            - name: runner-state
+              mountPath: /runner-state
+            {{- end }}
             - name: runner-home
               mountPath: /home/runner
             - name: runner-certs
@@ -102,18 +132,24 @@ spec:
             requests:
               cpu: {{ .Values.resources.requests.cpu | quote }}
               memory: {{ .Values.resources.requests.memory | quote }}
+              {{- if .Values.resources.requests.ephemeralStorage }}
+              ephemeral-storage: {{ .Values.resources.requests.ephemeralStorage | quote }}
+              {{- end }}
             limits:
               cpu: {{ .Values.resources.limits.cpu | quote }}
               memory: {{ .Values.resources.limits.memory | quote }}
+              {{- if .Values.resources.limits.ephemeralStorage }}
+              ephemeral-storage: {{ .Values.resources.limits.ephemeralStorage | quote }}
+              {{- end }}
 
       volumes:
-        {{- if .Values.persistence.enabled }}
         - name: work
+          emptyDir:
+            sizeLimit: {{ .Values.workspace.sizeLimit }}
+        {{- if .Values.persistence.enabled }}
+        - name: runner-state
           persistentVolumeClaim:
             claimName: {{ .Release.Name }}-runner-state
-        {{- else }}
-        - name: work
-          emptyDir: {}
         {{- end }}
         - name: runner-home
           emptyDir: {}
