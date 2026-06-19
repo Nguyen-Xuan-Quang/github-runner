@@ -1,0 +1,36 @@
+name: github-runner
+
+github:
+  url: "https://github.com/Nguyen-Xuan-Quang/test"
+
+runner:
+  name: "github-runner"
+  labels: "github,dev,cms"
+  ephemeral: "false"
+
+config:
+  tokenSecretName: github-runner-registration-token
+  tokenSecretKey: RUNNER_TOKEN
+
+secrets:
+  imagePull: jfrog-cred
+  proxyCAConfigMap: rb-proxy-tls-ca
+
+image:
+  runner: docker-virtual.rb-artifactory.bosch.com/summerwind/actions-runner:latest
+  helm: docker-virtual.rb-artifactory.bosch.com/alpine/helm:3.14.4
+
+resources:
+  requests:
+    cpu: "30m"
+    memory: "384Mi"
+  limits:
+    cpu: "200m"
+    memory: "896Mi"
+
+persistence:
+  enabled: true
+  storageClassName: ""
+  size: 10Gi
+  accessModes:
+    - ReadWriteOnce

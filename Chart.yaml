@@ -1,0 +1,7 @@
+apiVersion: v2
+name: github-runner
+description: Self-hosted GitHub Actions runner (Helm chart) for Bosch DCMLP / CMS dev cluster.
+  Uses simple config.sh + registration token (no long-lived org PAT + fetch logic).
+type: application
+version: 1.0.0
+appVersion: "latest"

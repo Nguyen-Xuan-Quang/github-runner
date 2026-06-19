@@ -1,0 +1,417 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.name }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{ .Values.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.name }}
+    spec:
+      # restricted SCC
+      securityContext:
+        runAsUser: 1000
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      enableServiceLinks: false
+      initContainers:
+        # === Install Node.js 20 LTS ===
+        - name: install-node
+          image: {{ .Values.image.runner }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: HTTPS_PROXY
+              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
+            - name: HTTP_PROXY
+              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,.svc,.cluster.local,.internal.bosch.cloud,.bosch.com"
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              NODE_VERSION=v20.19.1
+              echo "Downloading Node.js ${NODE_VERSION}..."
+              curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.gz" \
+                | tar -xz -C /tools/
+              mv /tools/node-${NODE_VERSION}-linux-x64 /tools/node
+              echo "node: $(/tools/node/bin/node --version)"
+              echo "npm:  $(/tools/node/bin/npm --version)"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+
+        # === Install oc/kubectl ===
+        - name: install-oc
+          image: {{ .Values.image.runner }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: HTTPS_PROXY
+              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
+            - name: HTTP_PROXY
+              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,.svc,.cluster.local,.internal.bosch.cloud,.bosch.com"
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              OC_VERSION=4.15.0
+              echo "Downloading oc ${OC_VERSION}..."
+              curl -fsSL \
+                "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/${OC_VERSION}/openshift-client-linux.tar.gz" \
+                | tar -xz -C /tools oc kubectl
+              echo "oc ready: $(/tools/oc version --client 2>&1 | head -1)"
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "64Mi"
+            limits:
+              cpu: "50m"
+              memory: "128Mi"
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+
+        # === Install Python 3.10 standalone ===
+        - name: install-python310
+          image: {{ .Values.image.runner }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: HTTPS_PROXY
+              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
+            - name: HTTP_PROXY
+              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,.svc,.cluster.local,.internal.bosch.cloud,.bosch.com"
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              PY_VERSION=3.10.13
+              PY_BUILD=20240107
+              echo "Downloading Python ${PY_VERSION} (python-build-standalone)..."
+              curl -fsSL \
+                "https://github.com/indygreg/python-build-standalone/releases/download/${PY_BUILD}/cpython-${PY_VERSION}+${PY_BUILD}-x86_64-unknown-linux-gnu-install_only.tar.gz" \
+                | tar -xz -C /tools/
+              echo "python3.10: $(/tools/python/bin/python3.10 --version)"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "256Mi"
+            limits:
+              cpu: "200m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+
+        # === Install sops + yq + poetry ===
+        - name: install-tools-extras
+          image: {{ .Values.image.runner }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: HOME
+              value: "/tools"
+            - name: TMPDIR
+              value: "/tools/tmp"
+            - name: HTTPS_PROXY
+              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
+            - name: HTTP_PROXY
+              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,.svc,.cluster.local,.internal.bosch.cloud,.bosch.com"
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              mkdir -p /tools/tmp
+
+              echo "Bootstrapping pip into Python 3.10..."
+              /tools/python/bin/python3.10 -m ensurepip --upgrade
+              /tools/python/bin/python3.10 -m pip install --upgrade pip --quiet
+              echo "pip: $(/tools/python/bin/python3.10 -m pip --version)"
+
+              SOPS_VERSION=v3.8.1
+              echo "Downloading sops ${SOPS_VERSION}..."
+              curl -fsSL "https://github.com/getsops/sops/releases/download/${SOPS_VERSION}/sops-${SOPS_VERSION}.linux.amd64" -o /tools/sops
+              chmod +x /tools/sops
+
+              YQ_VERSION=v4.43.1
+              echo "Downloading yq ${YQ_VERSION}..."
+              curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /tools/yq
+              chmod +x /tools/yq
+
+              echo "Installing poetry via pip..."
+              export LD_LIBRARY_PATH=/tools/python/lib:${LD_LIBRARY_PATH}
+              /tools/python/bin/python3.10 -m pip install --quiet poetry
+              echo "poetry: $(/tools/python/bin/python3.10 -m poetry --version 2>&1)"
+
+              cat > /tools/poetry-bin << 'WRAPPER'
+              #!/bin/bash
+              export LD_LIBRARY_PATH=/tools/python/lib:${LD_LIBRARY_PATH}
+              exec /tools/python/bin/python3.10 -m poetry "$@"
+              WRAPPER
+              chmod +x /tools/poetry-bin
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+
+        # === Copy helm binary ===
+        - name: install-helm
+          image: {{ .Values.image.helm }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - sh
+            - -c
+            - |
+              cp $(which helm) /tools/helm
+              echo "helm ready: $(/tools/helm version --short 2>&1)"
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "32Mi"
+            limits:
+              cpu: "20m"
+              memory: "64Mi"
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+
+        # === Inject RB proxy CA certs ===
+        - name: install-ca-cert
+          image: {{ .Values.image.runner }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              REGISTRY=docker-virtual.rb-artifactory.bosch.com
+              mkdir -p /runner-certs/${REGISTRY}
+              cp /rb-proxy-ca/ca.crt /runner-certs/${REGISTRY}/ca.crt
+              cat /etc/ssl/certs/ca-certificates.crt /rb-proxy-ca/ca.crt > /runner-certs/ca-bundle.crt
+              echo "CA cert installed for ${REGISTRY}"
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "16Mi"
+            limits:
+              cpu: "20m"
+              memory: "32Mi"
+          volumeMounts:
+            - name: rb-proxy-tls-ca
+              mountPath: /rb-proxy-ca
+              readOnly: true
+            - name: runner-certs
+              mountPath: /runner-certs
+
+        # === Flatten tools into runner-bin (PATH) ===
+        - name: flatten-tools
+          image: {{ .Values.image.runner }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              cp -a /usr/local/bin/* /runner-bin/ 2>/dev/null || true
+              for f in /tools/oc /tools/kubectl /tools/helm /tools/sops /tools/yq; do
+                [ -f "$f" ] && cp "$f" /runner-bin/
+              done
+              for f in /tools/node/bin/*; do
+                [ -e "$f" ] && ln -sf "$f" /runner-bin/
+              done
+              [ -f /tools/poetry-bin ] && cp /tools/poetry-bin /runner-bin/poetry
+              for name in python python3 python3.10; do
+                ln -sf /tools/python/bin/python3.10 /runner-bin/$name
+              done
+              echo "Flattened /runner-bin contents:"
+              ls -la /runner-bin/
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "32Mi"
+            limits:
+              cpu: "20m"
+              memory: "64Mi"
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+            - name: runner-bin
+              mountPath: /runner-bin
+
+      containers:
+        - name: runner
+          image: {{ .Values.image.runner }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: RUNNER_URL
+              value: {{ .Values.github.url | quote }}
+            - name: RUNNER_NAME
+              value: {{ .Values.runner.name | quote }}
+            - name: RUNNER_LABELS
+              value: {{ .Values.runner.labels | quote }}
+            - name: EPHEMERAL
+              value: {{ .Values.runner.ephemeral | quote }}
+            - name: RUNNER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.config.tokenSecretName }}
+                  key: {{ .Values.config.tokenSecretKey }}
+            - name: HOME
+              value: "/runner"
+            - name: PATH
+              value: "/tools:/tools/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            - name: LD_LIBRARY_PATH
+              value: "/tools/python/lib"
+            - name: HTTPS_PROXY
+              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
+            - name: HTTP_PROXY
+              value: "http://rb-proxy-emea.internal.bosch.cloud:8080"
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,.svc,.cluster.local,.internal.bosch.cloud,.bosch.com"
+            # CA bundle cho mọi client
+            - name: SSL_CERT_FILE
+              value: "/etc/docker/certs.d/ca-bundle.crt"
+            - name: CURL_CA_BUNDLE
+              value: "/etc/docker/certs.d/ca-bundle.crt"
+            - name: REQUESTS_CA_BUNDLE
+              value: "/etc/docker/certs.d/ca-bundle.crt"
+            - name: NODE_EXTRA_CA_CERTS
+              value: "/etc/docker/certs.d/ca-bundle.crt"
+          # === Config + run ===
+          # summerwind/actions-runner stores runner binaries in /runnertmp (image layer,
+          # owned by UID 1001). OpenShift runs the pod as UID 1000, so we cannot write
+          # directly into /runnertmp. Fix: copy assets to /runner (emptyDir volume,
+          # chowned to fsGroup by OpenShift → writable by UID 1000), then cd there.
+          # This mirrors what summerwind's own startup.sh does internally.
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              echo "Runner name: ${RUNNER_NAME}"
+              echo "Labels: ${RUNNER_LABELS}"
+              echo "URL: ${RUNNER_URL}"
+
+              # Copy runner assets từ image layer (/runnertmp) sang emptyDir volume (/runner)
+              echo "Copying runner assets to /runner..."
+              shopt -s dotglob
+              cp -r /runnertmp/. /runner/
+              shopt -u dotglob
+              cd /runner
+
+              # Chạy config.sh nếu chưa được cấu hình
+              if [ ! -f /runner/.runner ]; then
+                echo "Running config.sh with provided registration token..."
+                ./config.sh \
+                  --url "${RUNNER_URL}" \
+                  --token "${RUNNER_TOKEN}" \
+                  --name "${RUNNER_NAME}" \
+                  --labels "${RUNNER_LABELS}" \
+                  --ephemeral "${EPHEMERAL}" \
+                  --unattended \
+                  --replace
+              else
+                echo "Runner already configured, skipping config.sh"
+              fi
+
+              echo "Starting runner..."
+              exec ./run.sh
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+            - name: work
+              mountPath: /runner
+            - name: runner-bin
+              mountPath: /usr/local/bin
+            - name: runner-home
+              mountPath: /home/runner
+            - name: runner-certs
+              mountPath: /etc/docker/certs.d
+          resources:
+            requests:
+              cpu: {{ .Values.resources.requests.cpu | quote }}
+              memory: {{ .Values.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.resources.limits.cpu | quote }}
+              memory: {{ .Values.resources.limits.memory | quote }}
+
+      volumes:
+        - name: tools
+          emptyDir: {}
+        - name: work
+          emptyDir: {}
+        - name: runner-bin
+          emptyDir: {}
+        {{- if .Values.persistence.enabled }}
+        # PVC này chứa .runner (registration state) + một số file runner khác.
+        # Nhờ nó mà sau lần config đầu tiên, mọi pod restart / recreate đều KHÔNG cần token nữa.
+        - name: runner-home
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-runner-state
+        {{- else }}
+        - name: runner-home
+          emptyDir: {}
+        {{- end }}
+        - name: runner-certs
+          emptyDir: {}
+        - name: rb-proxy-tls-ca
+          configMap:
+            name: {{ .Values.secrets.proxyCAConfigMap }}
+
+      imagePullSecrets:
+        - name: {{ .Values.secrets.imagePull }}  # new secret for git.digital-easy.link:5000 registry
