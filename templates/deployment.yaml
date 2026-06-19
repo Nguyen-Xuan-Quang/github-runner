@@ -73,7 +73,7 @@ spec:
                 fi
                 echo "Restoring runner state from /runner-state..."
                 for f in .runner .credentials .credentials_rsaparams .env .path; do
-                  [ -f "/runner-state/$f" ] && cp -a "/runner-state/$f" /runner/
+                  [ -f "/runner-state/$f" ] && cp "/runner-state/$f" /runner/
                 done
               }
 
@@ -85,13 +85,13 @@ spec:
                 rm -f /runner-state/.write-test
                 echo "Saving runner state to /runner-state..."
                 for f in .runner .credentials .credentials_rsaparams .env .path; do
-                  [ -f "/runner/$f" ] && cp -a "/runner/$f" /runner-state/
+                  [ -f "/runner/$f" ] && cp "/runner/$f" /runner-state/
                 done
               }
 
               echo "Copying runner assets to /runner (emptyDir)..."
               shopt -s dotglob
-              cp -a /runnertmp/. /runner/
+              cp -r /runnertmp/. /runner/
               shopt -u dotglob
               cd /runner
 
