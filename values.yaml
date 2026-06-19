@@ -1,7 +1,7 @@
 name: github-runner
 
 github:
-  url: "https://github.com/Nguyen-Xuan-Quang/test"
+  url: "https://github.com/test-dcmlp"
 
 runner:
   name: "github-runner"
