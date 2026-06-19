@@ -27,15 +27,16 @@ image:
 
 resources:
   requests:
-    cpu: "30m"
-    memory: "384Mi"
+    cpu: "1000m"
+    memory: "4Gi"
   limits:
-    cpu: "200m"
-    memory: "896Mi"
+    cpu: "1000m"
+    memory: "4Gi"
 
+# PVC 60Gi mount tại /runner — lưu runner state (.runner) + workspace (_work) qua pod restart.
 persistence:
   enabled: true
   storageClassName: ""
-  size: 10Gi
+  size: 60Gi
   accessModes:
     - ReadWriteOnce

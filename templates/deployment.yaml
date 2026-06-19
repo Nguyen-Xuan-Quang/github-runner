@@ -107,16 +107,16 @@ spec:
               memory: {{ .Values.resources.limits.memory | quote }}
 
       volumes:
-        - name: work
-          emptyDir: {}
         {{- if .Values.persistence.enabled }}
-        - name: runner-home
+        - name: work
           persistentVolumeClaim:
             claimName: {{ .Release.Name }}-runner-state
         {{- else }}
-        - name: runner-home
+        - name: work
           emptyDir: {}
         {{- end }}
+        - name: runner-home
+          emptyDir: {}
         - name: runner-certs
           emptyDir: {}
         - name: rb-proxy-tls-ca
