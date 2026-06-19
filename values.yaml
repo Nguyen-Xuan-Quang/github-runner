@@ -21,14 +21,21 @@ secrets:
   imagePull: dockerhub-cred
   proxyCAConfigMap: rb-proxy-tls-ca
 
+# Image phải build với USER root (image/Dockerfile) — tag mới sau khi rebuild & push.
 image:
-  runner: docker.io/nor1hctools/deployments:cms-actions-runner-1.0.0
+  runner: docker.io/nor1hctools/deployments:cms-actions-runner-1.0.1
   registry: docker.io
 
 serviceAccount:
   create: true
   name: github-runner
   clusterAdmin: true
+  # Cluster admin — bắt buộc khi runAsRoot=true:
+  # oc adm policy add-scc-to-user anyuid -z github-runner -n <namespace>
+
+securityContext:
+  runAsRoot: true
+  runAsUser: 0
 
 resources:
   requests:
@@ -40,11 +47,11 @@ resources:
     memory: "4Gi"
     ephemeralStorage: "60Gi"
 
-# /runner = emptyDir (workspace, luôn writable trên OpenShift)
-# /runner-state = PVC nhỏ, chỉ lưu .runner / .credentials qua pod restart
+# /runner = emptyDir 60Gi (workspace)
 workspace:
   sizeLimit: 60Gi
 
+# /runner-state = PVC — lưu .runner / .credentials (cần root + anyuid SCC)
 persistence:
   enabled: true
   storageClassName: ""

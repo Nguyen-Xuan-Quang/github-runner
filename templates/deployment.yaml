@@ -20,11 +20,20 @@ spec:
       {{- if .Values.serviceAccount.create }}
       serviceAccountName: {{ .Values.serviceAccount.name }}
       {{- end }}
+      {{- if .Values.securityContext.runAsRoot }}
+      securityContext:
+        runAsUser: {{ .Values.securityContext.runAsUser | int }}
+        runAsNonRoot: false
+      {{- end }}
       enableServiceLinks: false
       containers:
         - name: runner
           image: {{ .Values.image.runner }}
           securityContext:
+            {{- if .Values.securityContext.runAsRoot }}
+            runAsUser: {{ .Values.securityContext.runAsUser | int }}
+            runAsNonRoot: false
+            {{- end }}
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -71,21 +80,17 @@ spec:
                 if [ ! -f /runner-state/.runner ]; then
                   return 0
                 fi
-                echo "Restoring runner state from /runner-state..."
+                echo "Restoring runner state from PVC /runner-state..."
                 for f in .runner .credentials .credentials_rsaparams .env .path; do
-                  [ -f "/runner-state/$f" ] && cp "/runner-state/$f" /runner/
+                  [ -f "/runner-state/${f}" ] && cp "/runner-state/${f}" /runner/
                 done
               }
 
               save_state() {
-                if ! touch /runner-state/.write-test 2>/dev/null; then
-                  echo "WARN: /runner-state not writable — registration state will not persist"
-                  return 0
-                fi
-                rm -f /runner-state/.write-test
-                echo "Saving runner state to /runner-state..."
+                mkdir -p /runner-state
+                echo "Saving runner state to PVC /runner-state..."
                 for f in .runner .credentials .credentials_rsaparams .env .path; do
-                  [ -f "/runner/$f" ] && cp "/runner/$f" /runner-state/
+                  [ -f "/runner/${f}" ] && cp "/runner/${f}" /runner-state/
                 done
               }
 
