@@ -23,7 +23,7 @@ secrets:
 
 # Image phải build với USER root (image/Dockerfile) — tag mới sau khi rebuild & push.
 image:
-  runner: docker.io/nor1hctools/deployments:cms-actions-runner-1.0.1
+  runner: docker.io/nor1hctools/deployments:cms-actions-runner-1.0.0
   registry: docker.io
 
 serviceAccount:
