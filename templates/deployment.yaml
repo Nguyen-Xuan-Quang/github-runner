@@ -53,6 +53,10 @@ spec:
                   key: {{ .Values.config.tokenSecretKey }}
             - name: HOME
               value: "/runner"
+            {{- if .Values.securityContext.runAsRoot }}
+            - name: RUNNER_ALLOW_RUNASROOT
+              value: "1"
+            {{- end }}
             {{- include "github-runner.proxyEnv" . | nindent 12 }}
             - name: SSL_CERT_FILE
               value: "/etc/docker/certs.d/ca-bundle.crt"
