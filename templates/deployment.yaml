@@ -20,20 +20,19 @@ spec:
       {{- if .Values.serviceAccount.create }}
       serviceAccountName: {{ .Values.serviceAccount.name }}
       {{- end }}
-      {{- if .Values.securityContext.runAsRoot }}
       securityContext:
+        runAsNonRoot: true
         runAsUser: {{ .Values.securityContext.runAsUser | int }}
-        runAsNonRoot: false
-      {{- end }}
+        runAsGroup: {{ .Values.securityContext.runAsGroup | int }}
+        fsGroup: {{ .Values.securityContext.fsGroup | int }}
       enableServiceLinks: false
       containers:
         - name: runner
           image: {{ .Values.image.runner }}
           securityContext:
-            {{- if .Values.securityContext.runAsRoot }}
+            runAsNonRoot: true
             runAsUser: {{ .Values.securityContext.runAsUser | int }}
-            runAsNonRoot: false
-            {{- end }}
+            runAsGroup: {{ .Values.securityContext.runAsGroup | int }}
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -53,10 +52,6 @@ spec:
                   key: {{ .Values.config.tokenSecretKey }}
             - name: HOME
               value: "/runner"
-            {{- if .Values.securityContext.runAsRoot }}
-            - name: RUNNER_ALLOW_RUNASROOT
-              value: "1"
-            {{- end }}
             {{- include "github-runner.proxyEnv" . | nindent 12 }}
             - name: SSL_CERT_FILE
               value: "/etc/docker/certs.d/ca-bundle.crt"

@@ -21,7 +21,7 @@ secrets:
   imagePull: dockerhub-cred
   proxyCAConfigMap: rb-proxy-tls-ca
 
-# Image phải build với USER root (image/Dockerfile) — tag mới sau khi rebuild & push.
+# Image chạy NON-ROOT (USER runner, uid 1001 — xem image/Dockerfile).
 image:
   runner: docker.io/nor1hctools/deployments:cms-actions-runner-1.0.0
   registry: docker.io
@@ -29,13 +29,18 @@ image:
 serviceAccount:
   create: true
   name: github-runner
+  # clusterAdmin chỉ phục vụ JOB CI (oc apply/deploy vào cluster).
+  # KHÔNG còn liên quan việc chạy root: pod giờ non-root, không cần anyuid cho uid.
   clusterAdmin: true
-  # Cluster admin — bắt buộc khi runAsRoot=true:
-  # oc adm policy add-scc-to-user anyuid -z github-runner -n <namespace>
 
 securityContext:
-  runAsRoot: true
-  runAsUser: 0
+  # Non-root: chạy bằng user 'runner' (uid 1001) đã bake sẵn trong image.
+  runAsUser: 1001
+  runAsGroup: 1001
+  # fsGroup = gid runner → OpenShift tự chown PVC /runner-state + emptyDir sang
+  # gid này (CSI cinder fsGroupPolicy=File) nên runner GHI ĐƯỢC state mà không
+  # cần root và không cần RUNNER_ALLOW_RUNASROOT.
+  fsGroup: 1001
 
 resources:
   requests:
