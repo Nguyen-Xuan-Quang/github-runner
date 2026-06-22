@@ -1,0 +1,17 @@
+# Headless Service required by StatefulSet (stable pod DNS identity).
+# No traffic is routed through this service for the runner workload.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.name }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: {{ .Values.name }}
+  ports:
+    - name: unused
+      port: 1

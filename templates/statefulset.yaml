@@ -1,14 +1,18 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ .Values.name }}
   namespace: {{ .Release.Namespace }}
   labels:
     app: {{ .Values.name }}
 spec:
+  serviceName: {{ .Values.name }}
   replicas: 1
-  strategy:
-    type: Recreate
+  # OrderedReady: wait for pod-N to be Running before pod-N+1; on delete, the
+  # terminating pod keeps its name so no second pod mounts the RWO PVC.
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app: {{ .Values.name }}
@@ -20,6 +24,7 @@ spec:
       {{- if .Values.serviceAccount.create }}
       serviceAccountName: {{ .Values.serviceAccount.name }}
       {{- end }}
+      terminationGracePeriodSeconds: 60
       securityContext:
         runAsNonRoot: true
         runAsUser: {{ .Values.securityContext.runAsUser | int }}
