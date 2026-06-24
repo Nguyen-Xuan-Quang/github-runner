@@ -1,7 +1,7 @@
 name: github-runner
 
 github:
-  url: "https://github.com/test-dcmlp"
+  url: "https://github.com/bosch-dcmlp-solution/dcmlp-cms-pipeline-central"
 
 runner:
   name: "dcmlp-prod-github-runner"
